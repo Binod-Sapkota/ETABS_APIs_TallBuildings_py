@@ -1,0 +1,197 @@
+import os
+import sys
+import comtypes.client
+# import comtypes.gen
+import numpy as np
+import csv
+from itertools import compress
+import Obj_utils
+
+
+def main():
+    AttachToInstance = False
+    SpecifyPath = False
+    ProgramPath = "C:\Program Files (x86)\Computers and Structures\ETABS 18\ETABS.exe"
+
+    # full path to the model
+    # set it to the desired path of your model
+
+    # APIPath = 'E:\\ETABS'
+
+    # if not os.path.exists(APIPath):
+    #     try:
+    #         os.makedirs(APIPath)
+    #     except OSError:
+    #         pass
+    # ModelPath = APIPath + os.sep + 'API_1-001.edb'
+
+    if AttachToInstance:
+        try:
+            # get the active ETABS object
+            myETABSObject = comtypes.client.GetActiveObject("CSI.ETABS.API.ETABSObject")
+        except (OSError, comtypes.COMError):
+            print("No running instance of the program found or failed to attach.")
+            sys.exit(-1)
+
+    else:
+        # create API helper object
+        helper = comtypes.client.CreateObject('ETABSv1.Helper')
+        helper = helper.QueryInterface(comtypes.gen.ETABSv1.cHelper)
+        if SpecifyPath:
+            try:
+                # 'create an instance of the ETABS object from the specified path
+                myETABSObject = helper.CreateObject(ProgramPath)
+            except (OSError, comtypes.COMError):
+                print("Cannot start a new instance of the program from " + ProgramPath)
+                sys.exit(-1)
+        else:
+
+            try:
+                # create an instance of the ETABS object from the latest installed ETABS
+                myETABSObject = helper.CreateObjectProgID("CSI.ETABS.API.ETABSObject")
+            except (OSError, comtypes.COMError):
+                print("Cannot start a new instance of the program.")
+                sys.exit(-1)
+
+        # start ETABS application
+        myETABSObject.ApplicationStart()
+
+    # create SapModel object
+    SapModel = myETABSObject.SapModel
+
+    # Set units
+    kN_m_C = 6
+    ret = SapModel.SetPresentUnits(6)
+
+    etabsFiles = Obj_utils.ObjEtabsFile("E:\\ETABS").files
+
+    for f in etabsFiles:
+        SapModel.File.OpenFile(f)
+
+
+    # SapModel.InitializeNewModel()
+
+    # create new blank model
+    # ret = SapModel.File.NewBlank()
+
+    #
+    [StoryNumber, StoryName, ret] = SapModel.Story.GetNameList()
+    area = []
+    for st in StoryName:
+        tempArea = 0
+        vertices = 0
+        [areaNumber, areaName, ret] = SapModel.AreaObj.GetNameListOnStory(st)
+        for ar in areaName:
+            [designOrientation, ret] = SapModel.AreaObj.GetDesignOrientation(ar)
+            if designOrientation == 2:
+                [NumberPoints, Point, ret] = SapModel.AreaObj.GetPoints(ar)
+                x_co = []
+                y_co = []
+                z_co = []
+                for pt in Point:
+                    [x, y, z, ret] = SapModel.PointObj.GetCoordCartesian(pt)
+                    x_co.append(x)
+                    y_co.append(y)
+                    z_co.append(z)
+                vertices = np.transpose(np.array([x_co, y_co, z_co]))
+                tempArea += tempArea
+        area.append(AreaOfPolygonFromVertices(vertices))
+    totalArea = np.sum(area)
+    print(totalArea)
+
+    # # a =[1,2,3,4]
+    # areaInfoAllDict = {"Story": StoryName,
+    #                    "area": area}
+
+    # with open('StoryArea.csv','w') as csvFile:
+    #     writer = csv.writer(csvFile)
+    #
+    #     for ro in areaInfoAllDict.keys():
+    #         writer.writerow([ro,areaInfoAllDict[ro]])
+
+    areaInfoAllDict = 0
+    [areaAllNumber, areaAllName, areaAllType,
+     areaAllBoundaryPoints, areaAllPointDelimiter,
+     areaAllPointNames, areaAllPointX, areaAllPointY, areaAllPointZ, ret] = SapModel.AreaObj.GetAllAreas()
+
+    areaPointAll = np.transpose(np.array([areaAllPointX, areaAllPointY, areaAllPointZ]))
+    area = []
+    for i, name in enumerate(areaAllName):
+        if i == 0:
+            start = 0
+        else:
+            start = areaAllPointDelimiter[i - 1]
+        end = areaAllPointDelimiter[i] + 1
+        area.append(Obj_utils.ObjArea(name, areaAllType[i], areaPointAll[start:end]))
+
+    [StoryNumber, StoryName, ret] = SapModel.Story.GetNameList()
+    storey = []
+    for st in StoryName:
+        [numberArea, nameArea, ret] = SapModel.AreaObj.GetNameListOnStory(st)
+        areafloor = [j for j in nameArea if areaAllType[areaAllName.index(j)] == 2]
+        print(areafloor)
+        areaValues = []
+        for i in areafloor:
+            for j in area:
+                if i == j.name:
+                    areaValues.append(j.get_area())
+        storey.append(Obj_utils.ObjStory(st, areaValues))
+    print([i.get_area() for i in storey])
+
+    # pointInfo = [[areaAllPointNames],[areaAllPointX],[areaAllPointY],[areaAllPointZ]]
+    #
+    # mask = np.transpose(np.array([areaAllType]) == 2)
+    #
+    # areaAllPointDelimiter = np.transpose(np.array([areaAllPointDelimiter]))
+    # areaAllPointDelimiter = areaAllPointDelimiter.astype(int)
+    # pointDelimiterFloor = areaAllPointDelimiter[mask,None]
+    #
+    # # areaNameOfPoints = []
+    # # for i, j in zip(areaAllPointDelimiter[0::], areaAllPointDelimiter[1::]):
+    # #     areaNameOfPoints.append(j - i)
+    # #
+    # # areaNameAll = np.repeat(areaAllName,areaNameOfPoints)
+    #
+    # # areaAllName = (areaAllName)
+    # # areaNameFloor = list(compress(areaAllName,mask))
+    # #areaPointAll = areaPointAll[pointDelimiterFloor+1]
+    #
+    # area = np.zeros((areaAllNumber,1))
+    #
+    # for i in range(np.size(areaAllPointDelimiter,axis = 0)):
+    #
+    #     [NumberPoints, Point,ret] = SapModel.AreaObj.GetPoints(areaNameFloor[i])
+    #
+    #     # areaPointEach = pointI[areaAllPointNames == Point]
+    #
+    #     # if i == 0:
+    #     #     areaPointEach = areaPointAll[0:int(areaAllPointDelimiter[i]+1),:]
+    #     # else:
+    #     #     areaPointEach = areaPointAll[int(areaAllPointDelimiter[i-1]+1):int(areaAllPointDelimiter[i]+1), :]
+    #     area[i] = AreaOfPolygonFromVertices(areaPointEach)
+    #
+    #
+
+    SapModel = None
+    myETABSObject = None
+
+    return areaInfoAllDict
+
+
+def AreaOfPolygonFromVertices(vertices):
+    sumTotal = 0.0
+    for i in range(np.size(vertices, axis=0)):
+        if i == (np.size(vertices, axis=0) - 1):
+            temp1 = vertices[i, 0] * vertices[0, 1] - vertices[0, 0] * vertices[i, 1]
+            sumTotal += temp1
+        else:
+            temp1 = vertices[i, 0] * vertices[i + 1, 1] - vertices[i + 1, 0] * vertices[i, 1]
+            sumTotal += temp1
+
+    areaOfPolygon = sumTotal / 2.0
+    return areaOfPolygon
+
+
+_ = main()
+
+# //print(areaInfoAllDict)

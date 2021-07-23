@@ -1,0 +1,13 @@
+Name
+IsAuto
+XDir
+XDirPlusE
+XDirMinusE
+YDir
+YDirPlusE
+YDirMinusE
+EccRatio
+TopStory
+BotStory
+C
+K
